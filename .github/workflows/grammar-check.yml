@@ -46,7 +46,7 @@ jobs:
       # 4. Скачиваем LanguageTool (версию можно обновлять при необходимости)
       - name: Download LanguageTool
         run: |
-          wget https://languagetool.org/download/LanguageTool-6.0.zip -O lt.zip
+          wget https://languagetool.org/download/LanguageTool-6.5.zip -O lt.zip
           unzip lt.zip -d lt
 
       # 5. Убедимся, что словарь уже есть в репо: .github/languagetool/custom_dict.txt
