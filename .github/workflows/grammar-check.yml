@@ -1,4 +1,4 @@
-name: "Grammar & Punctuation Check (RU) with Markdown Conversion"
+name: "Grammar & Punctuation Check (RU)"
 
 on:
   pull_request:
@@ -24,49 +24,49 @@ on:
 jobs:
   grammar-check:
     runs-on: ubuntu-latest
-
     steps:
-      # 1. Клонируем репозиторий
+      # 1. Клонируем репозиторий, но с полным fetch
       - name: Check out the code
         uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
 
-      # 2. Устанавливаем Java (LanguageTool требует Java)
+      # 2. Устанавливаем Java
       - name: Set up Java
         uses: actions/setup-java@v3
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      # 3. Устанавливаем Pandoc (преобразование MD -> Plain Text)
+      # 3. Устанавливаем Pandoc
       - name: Install Pandoc
         run: |
           sudo apt-get update
           sudo apt-get install -y pandoc
 
-      # 4. Скачиваем LanguageTool (версию можно обновлять при необходимости)
+      # 4. Скачиваем LanguageTool (v6.5)
       - name: Download LanguageTool
         run: |
           wget https://languagetool.org/download/LanguageTool-6.5.zip -O lt.zip
           unzip lt.zip -d lt
 
-      # 5. Убедимся, что словарь уже есть в репо: .github/languagetool/custom_dict.txt
-      - name: Check custom dictionary
-        run: |
-          if [ ! -f ".github/languagetool/custom_dict.txt" ]; then
-            echo "Файл .github/languagetool/custom_dict.txt не найден!"
-            exit 1
-          fi
+      # 5. Отключаем экранирование путей в Git (важно для кириллических файлов!)
+      - name: Disable Git path quoting
+        run: git config core.quotepath off
 
-      # 6. Запускаем LanguageTool на изменённых .md-файлах, предварительно "чистя" их от Markdown
+      # 6. Собственно проверка .md-файлов
       - name: Run grammar check (RU) with Pandoc
         id: run_languagetool
         run: |
-          # Список .md-файлов, изменённых в этом PR (против базовой ветки)
-          CHANGED_FILES=$(git diff --name-only --diff-filter=ACMRT origin/${{ github.base_ref }} | grep '\.md$' || true)
+          # SHAs для diff
+          BASE_SHA=${{ github.event.pull_request.base.sha }}
+          HEAD_SHA=${{ github.event.pull_request.head.sha }}
+
+          # Получаем список изменённых .md-файлов
+          CHANGED_FILES=$(git diff --name-only --diff-filter=ACMRT $BASE_SHA $HEAD_SHA | grep '\.md$' || true)
 
           if [ -z "$CHANGED_FILES" ]; then
             echo "No changed .md files to check."
-            # создадим пустой вывод, чтобы следующий шаг мог это учесть
             echo "" > grammar_output.txt
             exit 0
           fi
@@ -74,7 +74,7 @@ jobs:
           echo "Changed markdown files:"
           echo "$CHANGED_FILES"
 
-          # Очищаем/создаём общий файл с результатами
+          # Очищаем/создаём общий файл вывода
           rm -f grammar_output.txt
           touch grammar_output.txt
 
@@ -83,15 +83,13 @@ jobs:
             echo "Проверка файла: $FILE" >> grammar_output.txt
             echo "" >> grammar_output.txt
 
-            # 1) Конвертируем из MD в обычный текст
+            # 1) MD -> plain text (Pandoc)
             pandoc "$FILE" -t plain -o /tmp/conversion.txt
 
-            # 2) Запускаем LanguageTool на тексте
-            #    --language ru + наш пользовательский словарь
-            java -jar lt/LanguageTool-6.0/languagetool-commandline.jar \
+            # 2) Запуск LanguageTool CLI
+            java -jar lt/LanguageTool-6.5/languagetool-commandline.jar \
               --language ru \
-              --motherTongue ru \
-              --userDictionary .github/languagetool/custom_dict.txt \
+              --mothertongue ru \
               /tmp/conversion.txt \
               >> grammar_output.txt \
               || true
@@ -99,9 +97,9 @@ jobs:
             echo "" >> grammar_output.txt
           done
 
-      # 7. Оставляем комментарий в PR с результатами
+      # 7. Публикуем результаты в PR
       - name: Create PR comment with suggestions
-        if: always()   # Выполнить даже в случае, если предыдущий шаг вернёт "ошибки"
+        if: always()
         uses: actions/github-script@v6
         with:
           script: |
@@ -119,16 +117,16 @@ jobs:
               return;
             }
 
-            // Ограничение на размер комментария (в символах)
+            // Ограничение на размер комментария (60к символов)
             const maxLength = 60000;
             let trimmed = suggestions;
             if (trimmed.length > maxLength) {
-              trimmed = trimmed.substring(0, maxLength) + "\n\n[...ВЫВОД ОТРЕЗАН ПОСЛЕ 60К СИМВОЛОВ...]";
+              trimmed = trimmed.substring(0, maxLength) +
+                "\n\n[...ВЫВОД ОТРЕЗАН ПОСЛЕ 60К СИМВОЛОВ...]";
             }
 
-            const body = `## LanguageTool (RU) — Проверка грамматики (Markdown очищен)\n\n\`\`\`\n${trimmed}\n\`\`\``;
+            const body = `## LanguageTool (RU) — Проверка грамматики\n\n\`\`\`\n${trimmed}\n\`\`\``;
 
-            // Создаём комментарий в PR
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
