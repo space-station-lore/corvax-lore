@@ -1,0 +1,200 @@
+name: Lore Checker
+
+on:
+  pull_request:
+    paths:
+      - '01_Вселенная/**'
+      - '02_Станция/**'
+      - '03_Государства/**'
+      - '04_Корпорации/**'
+      - '05_Организации/**'
+      - '06_Расы/**'
+      - '07_Существа/**'
+      - '08_Технологии/**'
+      - '09_Вооружение/**'
+      - '10_Явления/**'
+      - '11_Товары/**'
+      - '12_Другое/**'
+      - '13_Истории/**'
+      - '14_Повседневность/**'
+
+jobs:
+  lore_checker:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+
+    - name: Install dependencies
+      run: |
+          pip install --upgrade pip
+          pip cache purge
+          pip install google-generativeai==0.4.0
+          pip install google-ai-generativelanguage==0.4.0
+          pip install google-auth>=2.15.0
+          pip install google-api-core
+          pip install protobuf
+          pip install pydantic
+          pip install tqdm
+          pip install typing-extensions
+          pip install "proto-plus>=1.22.3"
+          pip install "googleapis-common-protos>=1.56.2"
+          pip install requests>=2.18.0
+          pip install cachetools>=2.0.0
+          pip install pyasn1-modules>=0.2.1
+          pip install rsa>=3.1.4
+          pip install annotated-types>=0.6.0
+          pip install pydantic-core
+          pip install grpcio>=1.33.2
+          pip install grpcio-status>=1.33.2
+          pip install pyasn1>=0.4.6
+
+    - name: Analyze Markdown Changes
+      env:
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+      run: |
+        python <<'EOF'
+        import os
+        import subprocess
+        import google.generativeai as genai
+        import requests
+        import json
+
+        genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+
+        model = genai.GenerativeModel("gemini-1.5-flash")
+
+        def get_changed_files():
+          changed_files = []
+          pr_number = os.getenv("GITHUB_REF").split('/')[-2]
+          api_url = f"https://api.github.com/repos/{os.getenv('GITHUB_REPOSITORY')}/pulls/{pr_number}/files"
+          headers = {
+              "Authorization": f"Bearer {os.getenv('GITHUB_TOKEN')}",
+              "Accept": "application/vnd.github+json",
+          }
+          response = requests.get(api_url, headers=headers)
+          if response.status_code == 200:
+              files = response.json()
+              for file in files:
+                  if file["filename"].endswith(".md"):
+                      changed_files.append((file["status"], file["filename"]))
+          else:
+             print(f"Failed to get changed files: {response.status_code}, {response.text}")
+          return changed_files
+
+        def get_lore_from_folder(filepath):
+            lore = []
+            folder = os.path.dirname(filepath)
+            for root, _, files in os.walk(folder):
+                for file in files:
+                    if file.endswith('.md') and file not in ["README.md", "LICENSE.md"]:
+                        with open(os.path.join(root, file), 'r', encoding='utf-8') as f:
+                            lore.append(f.read())
+            return lore
+
+        def create_comment(body):
+              repo = os.getenv("GITHUB_REPOSITORY")
+              pr_number = os.getenv("GITHUB_REF").split('/')[-2]
+              url = f"https://api.github.com/repos/{repo}/issues/{pr_number}/comments"
+              headers = {
+                "Authorization": f"Bearer {os.getenv('GITHUB_TOKEN')}",
+                  "Accept": "application/vnd.github+json",
+              }
+              payload = {"body": body}
+              response = requests.post(url, json=payload, headers=headers)
+              if response.status_code != 201:
+                  print(f"Failed to post comment: {response.status_code}, {response.text}")
+              else:
+                 print("Comment posted successfully")
+
+        changed_files = get_changed_files()
+        comments = []
+
+        # Initial comment with tags for new files
+        initial_comments = []
+        for status, filepath in changed_files:
+            if status == 'added':
+                try:
+                    with open(filepath, 'r', encoding='utf-8') as f:
+                        text = f.read()
+                        tags_response = model.generate_content(f"На основе содержания, предложи 3-5 ключевых тега на русском языке в формате '#тег'. Только теги, ничего больше:\n\n{text}")
+                        tags_text = tags_response.candidates[0].content.parts[0].text.strip() if tags_response.candidates and tags_response.candidates[0].content.parts else "Не удалось получить теги."
+                        initial_comments.append(f"### Теги для `{filepath}`\n\n{tags_text}\n")
+                except Exception as e:
+                    initial_comments.append(f"### Ошибка получения тегов для `{filepath}`: {e}")
+
+        if initial_comments:
+            initial_comment_body = "\n".join(initial_comments)
+            create_comment(initial_comment_body)
+
+        # Process changes
+        for status, filepath in changed_files:
+            if status == 'added':  # New file
+                try:
+                  with open(filepath, 'r', encoding='utf-8') as f:
+                      text = f.read()
+                      summary = model.generate_content(f"Кратко опиши содержание следующего текста на русском языке:\n\n{text}")
+                      summary_text = summary.candidates[0].content.parts[0].text.strip() if summary.candidates and summary.candidates[0].content.parts else "Нет доступного описания."
+                      comments.append(f"### Описание для `{filepath}`\n\n{summary_text}\n")
+
+                except Exception as e:
+                  comments.append(f"### Ошибка обработки нового файла `{filepath}`: {e}")
+
+            elif status == 'modified':  # Modified file
+                 try:
+                   result = subprocess.run(["git", "show", f"HEAD~1:{filepath}"], capture_output=True, text=True)
+                   old_text = result.stdout
+                   with open(filepath, 'r', encoding='utf-8') as f:
+                       new_text = f.read()
+                   diff_summary = model.generate_content(f"Кратко опиши изменения в следующем тексте на русском языке:\n\nСтарый текст:\n{old_text}\n\nНовый текст:\n{new_text}")
+                   new_summary = model.generate_content(f"Кратко опиши содержание следующего текста на русском языке:\n\n{new_text}")
+
+                   diff_summary_text = diff_summary.candidates[0].content.parts[0].text.strip() if diff_summary.candidates and diff_summary.candidates[0].content.parts else "Нет доступного описания изменений"
+                   new_summary_text = new_summary.candidates[0].content.parts[0].text.strip() if new_summary.candidates and new_summary.candidates[0].content.parts else "Нет доступного описания нового текста"
+
+                   comments.append(
+                       f"### Изменения в `{filepath}`\n\n**Описание изменений:**\n{diff_summary_text}\n\n"
+                       f"**Описание нового текста:**\n{new_summary_text}\n"
+                   )
+                 except Exception as e:
+                   comments.append(f"### Ошибка обработки измененного файла `{filepath}`: {e}")
+
+            if status in ['added','modified']:
+                lore_subset = get_lore_from_folder(filepath)
+                if lore_subset:
+                    try:
+                        analysis = model.generate_content(f"Кратко проанализируй, насколько изменения в файле {filepath} согласуются со следующим контекстом из той же папки. Сгенерируй анализ на русском языке:\n\n{''.join(lore_subset)}")
+                        analysis_text = analysis.candidates[0].content.parts[0].text.strip() if analysis.candidates and analysis.candidates[0].content.parts else "Анализ соответствия лору недоступен"
+                        comments.append(f"### Анализ соответствия лору для `{filepath}`\n\n{analysis_text}\n")
+
+                        inconsistencies = model.generate_content(f"Кратко проанализируй текст в файле `{filepath}` на предмет неточностей и противоречий относительно следующего контекста из той же папки. Укажи конкретные места и сформулируй на русском языке:\n\n{''.join(lore_subset)}")
+                        inconsistencies_text = inconsistencies.candidates[0].content.parts[0].text.strip() if inconsistencies.candidates and inconsistencies.candidates[0].content.parts else "Неточностей и противоречий не выявлено."
+                        comments.append(f"### Потенциальные неточности и противоречия в `{filepath}`\n\n{inconsistencies_text}\n")
+
+                        suggestions = model.generate_content(f"Кратко, на основе анализа текста в файле `{filepath}` и следующего контекста из той же папки, дай советы по улучшению статьи, что стоило бы добавить или исправить, на русском языке:\n\n{''.join(lore_subset)}")
+                        suggestions_text = suggestions.candidates[0].content.parts[0].text.strip() if suggestions.candidates and suggestions.candidates[0].content.parts else "Рекомендации по улучшению отсутствуют."
+                        comments.append(f"### Советы по улучшению для `{filepath}`\n\n{suggestions_text}\n")
+
+                        clarifications = model.generate_content(f"Кратко укажи на неясные или требующие пояснения моменты в тексте файла `{filepath}` с учетом следующего контекста из той же папки, на русском языке:\n\n{''.join(lore_subset)}")
+                        clarifications_text = clarifications.candidates[0].content.parts[0].text.strip() if clarifications.candidates and clarifications.candidates[0].content.parts else "Неясных моментов не выявлено."
+                        comments.append(f"### Неясные моменты в `{filepath}`\n\n{clarifications_text}\n")
+
+                    except Exception as e:
+                        comments.append(f"### Ошибка анализа лора для `{filepath}`: {e}")
+                else:
+                    comments.append(f"### Внимание: Нет файлов лора для сравнения в той же папке, что и `{filepath}`.")
+
+        # Post comments to the PR
+        if comments:
+            comment_body = "\n".join(comments)
+            create_comment(comment_body)
+
+        EOF
