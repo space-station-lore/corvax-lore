@@ -1,0 +1,145 @@
+name: Template Checker
+
+on:
+  pull_request:
+    paths:
+      - '01_Вселенная/**'
+      - '02_Станция/**'
+      - '03_Государства/**'
+      - '04_Корпорации/**'
+      - '05_Организации/**'
+      - '06_Расы/**'
+      - '07_Существа/**'
+      - '08_Технологии/**'
+      - '09_Вооружение/**'
+      - '10_Явления/**'
+      - '11_Товары/**'
+      - '12_Другое/**'
+      - '13_Истории/**'
+      - '14_Повседневность/**'
+      - '!**/TEMPLATE.md' # Exclude TEMPLATE.md files
+
+jobs:
+  template_checker:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+
+    - name: Install dependencies
+      run: |
+          pip install --upgrade pip
+          pip cache purge
+          pip install google-generativeai==0.4.0
+          pip install requests
+
+    - name: Analyze Markdown Changes and Compare with Template and Rules (Gemini)
+      env:
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+      run: |
+        python <<'EOF'
+        import os
+        import requests
+        import google.generativeai as genai
+
+        genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+        model = genai.GenerativeModel("gemini-1.5-flash")
+
+        def get_changed_files():
+          changed_files = []
+          pr_number = os.getenv("GITHUB_REF").split('/')[-2]
+          api_url = f"https://api.github.com/repos/{os.getenv('GITHUB_REPOSITORY')}/pulls/{pr_number}/files"
+          headers = {
+              "Authorization": f"Bearer {os.getenv('GITHUB_TOKEN')}",
+              "Accept": "application/vnd.github+json",
+          }
+          response = requests.get(api_url, headers=headers)
+          if response.status_code == 200:
+              files = response.json()
+              for file in files:
+                  if file["filename"].endswith(".md") and not file["filename"].endswith("TEMPLATE.md"):
+                      changed_files.append((file["status"], file["filename"]))
+          else:
+             print(f"Failed to get changed files: {response.status_code}, {response.text}")
+          return changed_files
+
+        def create_comment(body):
+              repo = os.getenv("GITHUB_REPOSITORY")
+              pr_number = os.getenv("GITHUB_REF").split('/')[-2]
+              url = f"https://api.github.com/repos/{repo}/issues/{pr_number}/comments"
+              headers = {
+                "Authorization": f"Bearer {os.getenv('GITHUB_TOKEN')}",
+                  "Accept": "application/vnd.github+json",
+              }
+              payload = {"body": body}
+              response = requests.post(url, json=payload, headers=headers)
+              if response.status_code != 201:
+                  print(f"Failed to post comment: {response.status_code}, {response.text}")
+              else:
+                 print("Comment posted successfully")
+
+        changed_files = get_changed_files()
+        comments = {}
+
+        for status, filepath in changed_files:
+            if status in ['added', 'modified']:
+                dirname = os.path.dirname(filepath)
+                root_dirname = dirname.split(os.sep)[0]
+                template_path = os.path.join(root_dirname, "TEMPLATE.md")
+                rules_path = "00_Правила_оформления/Общие_правила.md"
+
+                if os.path.exists(template_path):
+                    try:
+                        with open(filepath, 'r', encoding='utf-8') as f:
+                            file_content = f.read()
+                        with open(template_path, 'r', encoding='utf-8') as t:
+                            template_content = t.read()
+                        with open(rules_path, 'r', encoding='utf-8') as r:
+                            rules_content = r.read()
+
+                        prompt = f"""
+                            Проанализируй следующий текст (полное содержимое файла) на соответствие шаблону (полное содержимое шаблона) и общим правилам оформления (полное содержимое правил).
+                            Укажи, чего не хватает в тексте файла по сравнению с шаблоном и правилами.
+                            Сформулируй свои рекомендации на русском языке, четко указывая, какие разделы или информацию стоит добавить в текст файла,
+                            чтобы он соответствовал структуре и содержанию шаблона, а также не противоречил общим правилам оформления.
+
+                            Текст файла (полное содержимое):
+                            {file_content}
+
+                            Текст шаблона (полное содержимое):
+                            {template_content}
+
+                            Общие правила оформления:
+                            {rules_content}
+                            """
+                        response = model.generate_content(prompt)
+                        recommendations_text = response.candidates[0].content.parts[0].text.strip() if response.candidates and response.candidates[0].content.parts else "Не удалось получить рекомендации по шаблону и правилам."
+
+                        if dirname not in comments:
+                            comments[dirname] = []
+                        comments[dirname].append(f"### Проверка `{os.path.basename(filepath)}` на соответствие шаблону и правилам в `{root_dirname}`\n\n{recommendations_text}\n")
+
+                    except Exception as e:
+                        if dirname not in comments:
+                            comments[dirname] = []
+                        comments[dirname].append(f"### Ошибка при сравнении `{os.path.basename(filepath)}` с `TEMPLATE.md` и `Общие_правила.md` в `{root_dirname}`:\n\n{e}\n")
+                else:
+                    if dirname not in comments:
+                        comments[dirname] = []
+                    comments[dirname].append(f"### Внимание: `TEMPLATE.md` не найден в папке `{root_dirname}` для файла `{os.path.basename(filepath)}`.\n")
+
+        # Post comments to the PR, one comment per directory
+        if comments:
+            for dirname, comment_lines in comments.items():
+                comment_body = "\n".join(comment_lines)
+                create_comment(comment_body)
+
+        EOF
