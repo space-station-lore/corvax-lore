@@ -4,7 +4,7 @@ title: "[Новый контент] Краткое описание"
 labels: ["Новый контент"]
 body:
   - type: dropdown
-    id: category
+    id: proposal_category
     attributes:
       label: "Категория"
       options:
@@ -26,9 +26,26 @@ body:
       required: true
 
   - type: textarea
-    id: description
+    id: new_content
     attributes:
       label: "Описание"
       description: "Подробно опишите, что вы хотите добавить (персонаж, объект, событие и т.д.)"
     validations:
       required: true
+
+  - type: markdown
+    id: proposal_info
+    attributes:
+      value: |
+        <details>
+          <summary> ℹ️ Автоматический лейбл. Не удаляйте этот блок. </summary>
+          Этот блок добавляет лейбл на основе выбранной категории.
+        </details>
+
+  - type: input
+    id: proposal_label_hidden
+    attributes:
+      label: "Служебное поле (не изменять)"
+      value: ${{ github.event.issue.labels[1].name }}
+    validations:
+      required: false

@@ -4,7 +4,7 @@ title: "[Ошибка] Краткое описание"
 labels: ["Ошибка"]
 body:
   - type: dropdown
-    id: category
+    id: error_category
     attributes:
       label: "Категория"
       options:
@@ -26,9 +26,26 @@ body:
       required: true
 
   - type: textarea
-    id: issue
+    id: error_description
     attributes:
       label: "Описание ошибки"
       placeholder: "Пример: В статье о корпорации «Нанотрейзен» ошибка в разделе о флоте"
     validations:
       required: true
+
+  - type: markdown
+    id: error_info
+    attributes:
+      value: |
+        <details>
+          <summary> ℹ️ Автоматический лейбл. Не удаляйте этот блок. </summary>
+          Этот блок добавляет лейбл на основе выбранной категории.
+        </details>
+
+  - type: input
+    id: error_label_hidden
+    attributes:
+      label: "Служебное поле (не изменять)"
+      value: ${{ github.event.issue.labels[1].name }}
+    validations:
+      required: false
