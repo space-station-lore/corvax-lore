@@ -1,4 +1,4 @@
-name: "Вопрос по текущей статье"
+name: "Вопрос по существующей статье"
 description: "Задать вопрос или запросить уточнение по существующей статье."
 title: "[Вопрос] Краткое описание вопроса"
 labels: ["Вопрос", "Текущая статья"]
@@ -20,6 +20,7 @@ body:
       placeholder: "Пример: В разделе 'Биология' не совсем понятно, как происходит размножение. Можно уточнить этот момент?"
     validations:
       required: true
+
   - type: dropdown
     id: category
     attributes:
@@ -41,21 +42,20 @@ body:
         - "Другое"
     validations:
       required: true
+
   - type: markdown
     id: category_label
     attributes:
-        label: "Скрытый лейбл категории"
-        value: |
-          <details>
-            <summary> ℹ️ Автоматический лейбл. Не удаляйте этот блок. </summary>
-            Этот блок добавляет автоматический лейбл на основе выбранной категории.
-            <br>
-          </details>
-    
+      value: |
+        <details>
+          <summary> ℹ️ Автоматический лейбл. Не удаляйте этот блок. </summary>
+          Этот блок добавляет автоматический лейбл на основе выбранной категории.
+          <br>
+        </details>
+
   - type: input
     id: category_label_hidden
+    attributes:
+      value: ${{ github.event.issue.labels[1].name }}
     validations:
       required: false
-    attributes:
-        label: "Скрытый input для лейбла категории"
-        value: ${{ github.event.issue.labels[1].name }}
