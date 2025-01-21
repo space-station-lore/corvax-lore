@@ -24,25 +24,25 @@ body:
         - "Другое"
     validations:
       required: true
+
   - type: markdown
-    id: category_label
+    id: category_label_info
     attributes:
-        label: "Скрытый лейбл категории"
-        value: |
-          <details>
-            <summary> ℹ️ Автоматический лейбл. Не удаляйте этот блок. </summary>
-            Этот блок добавляет автоматический лейбл на основе выбранной категории.
-            <br>
-          </details>
-    
+      value: |
+        <details>
+          <summary> ℹ️ Автоматический лейбл. Не удаляйте этот блок. </summary>
+          Этот блок добавляет автоматический лейбл на основе выбранной категории.
+          <br>
+        </details>
+
   - type: input
     id: category_label_hidden
+    attributes:
+      label: "Служебное поле (не изменять)"  # Обязательный атрибут
+      value: ${{ github.event.issue.labels[1].name }}
     validations:
       required: false
-    attributes:
-        label: "Скрытый input для лейбла категории"
-        value: ${{ github.event.issue.labels[1].name }}
-    
+
   - type: textarea
     id: changes
     attributes:
