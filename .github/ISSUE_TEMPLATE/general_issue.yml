@@ -25,6 +25,14 @@ body:
     validations:
       required: true
 
+  - type: textarea
+    id: error_description
+    attributes:
+      label: "Описание ошибки"
+      placeholder: "Пример: В статье о корпорации «Нанотрейзен» ошибка в разделе о флоте"
+    validations:
+      required: true
+
   - type: markdown
     id: error_info
     attributes:
@@ -41,11 +49,3 @@ body:
       value: ${{ github.event.issue.labels[1].name }}
     validations:
       required: false
-
-  - type: textarea
-    id: error_description
-    attributes:
-      label: "Описание ошибки"
-      placeholder: "Пример: В статье о корпорации «Нанотрейзен» ошибка в разделе о флоте"
-    validations:
-      required: true
