@@ -1,4 +1,4 @@
-name: "Вопрос по существующей статье"
+name: "Вопрос по текущей статье"
 description: "Задать вопрос или запросить уточнение по существующей статье."
 title: "[Вопрос] Краткое описание вопроса"
 labels: ["Вопрос", "Текущая статья"]
@@ -56,6 +56,7 @@ body:
   - type: input
     id: category_label_hidden
     attributes:
+      label: "Служебное поле (не изменять)"  # Добавлен обязательный атрибут
       value: ${{ github.event.issue.labels[1].name }}
     validations:
       required: false
