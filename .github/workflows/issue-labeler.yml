@@ -1,0 +1,46 @@
+name: Issue Label Manager
+on:
+  issues:
+    types: [opened, edited]
+
+jobs:
+  manage-labels:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Extract category and add labels
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const { data: issue } = await github.rest.issues.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number
+            });
+
+            // Получаем выбранную категорию
+            const categoryMatch = issue.body.match(/### Категория\s*\n([^\n]+)/);
+            const category = categoryMatch ? categoryMatch[1].trim() : null;
+
+            // Основной лейбл из шаблона
+            const templateLabel = issue.labels.find(l => l.name.match(/^(Изменение|Обсуждение|Новый контент|Ошибка)$/));
+
+            // Все доступные лейблы
+            const validLabels = new Set([
+              'Вооружение', 'Вселенная', 'Государства', 'Истории',
+              'Корпорации', 'Объекты', 'Организации', 'Повседневность',
+              'Расы', 'Существа', 'Технологии', 'Товары', 'Явления',
+              'Другое', 'Новый контент', 'Изменение', 'Обсуждение', 'Ошибка'
+            ]);
+
+            // Формируем итоговые лейблы
+            const newLabels = [];
+            if (templateLabel) newLabels.push(templateLabel.name);
+            if (category && validLabels.has(category)) newLabels.push(category);
+
+            // Обновляем лейблы
+            await github.rest.issues.setLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              labels: newLabels
+            });
