@@ -24,7 +24,23 @@ body:
         - "Другое"
     validations:
       required: true
-
+  - type: markdown
+    id: category_label
+    attributes:
+        value: |
+          <details>
+            <summary> ℹ️ Автоматический лейбл. Не удаляйте этот блок. </summary>
+            Этот блок добавляет автоматический лейбл на основе выбранной категории.
+            <br>
+          </details>
+    
+  - type: input
+    id: category_label_hidden
+    validations:
+      required: false
+    attributes:
+        value: ${{ github.event.issue.labels[1].name }}
+        
   - type: textarea
     id: issue
     attributes:

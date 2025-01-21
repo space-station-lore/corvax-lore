@@ -1,8 +1,25 @@
-name: "Предложение нового контента"
-description: "Добавить статью/материал в лор"
-title: "[Новый контент] Краткое описание"
-labels: ["Новый контент"]
+name: "Вопрос по текущей статье"
+description: "Задать вопрос или запросить уточнение по существующей статье."
+title: "[Вопрос] Краткое описание вопроса"
+labels: ["Вопрос", "Текущая статья"]
 body:
+  - type: input
+    id: article_name
+    attributes:
+      label: "Название статьи"
+      description: "Укажите название статьи, по которой возник вопрос."
+      placeholder: "Пример: Описание расы Слаймолюды"
+    validations:
+      required: true
+
+  - type: textarea
+    id: question_text
+    attributes:
+      label: "Текст вопроса"
+      description: "Подробно опишите ваш вопрос или запрос на уточнение."
+      placeholder: "Пример: В разделе 'Биология' не совсем понятно, как происходит размножение. Можно уточнить этот момент?"
+    validations:
+      required: true
   - type: dropdown
     id: category
     attributes:
@@ -40,11 +57,3 @@ body:
       required: false
     attributes:
         value: ${{ github.event.issue.labels[1].name }}
-        
-  - type: textarea
-    id: description
-    attributes:
-      label: "Описание"
-      description: "Подробно опишите, что вы хотите добавить (персонаж, объект, событие и т.д.)"
-    validations:
-      required: true
