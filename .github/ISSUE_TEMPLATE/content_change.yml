@@ -29,24 +29,6 @@ body:
     id: changes
     attributes:
       label: "Какие изменения нужны?"
-      placeholder: "Пример: Изменить описание станции «Delta» в разделе «Объекты»"
+      placeholder: "Пример: Исправить описание станции «Delta» в разделе «Объекты»"
     validations:
       required: true
-
-  - type: markdown
-    id: category_label_info
-    attributes:
-      value: |
-        <details>
-          <summary> ℹ️ Автоматический лейбл. Не удаляйте этот блок. </summary>
-          Этот блок добавляет автоматический лейбл на основе выбранной категории.
-          <br>
-        </details>
-
-  - type: input
-    id: category_label_hidden
-    attributes:
-      label: "Служебное поле (не изменять)"  # Обязательный атрибут
-      value: ${{ github.event.issue.labels[1].name }}
-    validations:
-      required: false
