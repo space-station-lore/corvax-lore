@@ -1,0 +1,12 @@
+name: "Обсуждение"
+description: "Общий вопрос или предложение"
+title: "[Обсуждение] Краткое описание"
+labels: ["Обсуждение"]
+body:
+  - type: textarea
+    id: topic
+    attributes:
+      label: "Тема"
+      placeholder: "Пример: Как улучшить описание расы Слаймолюдов?"
+    validations:
+      required: true
