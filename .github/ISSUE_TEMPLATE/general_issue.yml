@@ -27,6 +27,7 @@ body:
   - type: markdown
     id: category_label
     attributes:
+        label: "Скрытый лейбл ошибки"
         value: |
           <details>
             <summary> ℹ️ Автоматический лейбл. Не удаляйте этот блок. </summary>
@@ -39,6 +40,7 @@ body:
     validations:
       required: false
     attributes:
+        label: "Скрытый input для лейбла категории"
         value: ${{ github.event.issue.labels[1].name }}
         
   - type: textarea
