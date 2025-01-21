@@ -3,28 +3,6 @@ description: "Общий вопрос или предложение"
 title: "[Обсуждение] Краткое описание"
 labels: ["Обсуждение"]
 body:
-  - type: dropdown
-    id: category
-    attributes:
-      label: "Категория"
-      options:
-        - "Вооружение"
-        - "Вселенная"
-        - "Государства"
-        - "Истории"
-        - "Корпорации"
-        - "Объекты"
-        - "Организации"
-        - "Повседневность"
-        - "Расы"
-        - "Существа"
-        - "Технологии"
-        - "Товары"
-        - "Явления"
-        - "Другое"
-    validations:
-      required: true
-
   - type: textarea
     id: topic
     attributes:
@@ -32,20 +10,3 @@ body:
       placeholder: "Пример: Как улучшить описание расы Слаймолюдов?"
     validations:
       required: true
-
-  - type: markdown
-    id: discussion_category_info
-    attributes:
-      value: |
-        <details>
-          <summary> ℹ️ Автоматический лейбл. Не удаляйте этот блок. </summary>
-          Этот блок добавляет лейбл на основе выбранной категории.
-        </details>
-
-  - type: input
-    id: category_label_hidden
-    attributes:
-      label: "Служебное поле (не изменять)"
-      value: ${{ github.event.issue.labels[1].name }}
-    validations:
-      required: false
