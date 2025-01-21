@@ -5,7 +5,7 @@ on:
     paths:
       - '00_Правила_оформления/**/*.md'
       - '01_Вселенная/**/*.md'
-      - '02_Станция/**/*.md'
+      - '02_Объекты/**/*.md'
       - '03_Государства/**/*.md'
       - '04_Корпорации/**/*.md'
       - '05_Организации/**/*.md'
@@ -117,19 +117,55 @@ jobs:
               return;
             }
 
-            // Ограничение на размер комментария (60к символов)
-            const maxLength = 60000;
-            let trimmed = suggestions;
-            if (trimmed.length > maxLength) {
-              trimmed = trimmed.substring(0, maxLength) +
-                "\n\n[...ВЫВОД ОТРЕЗАН ПОСЛЕ 60К СИМВОЛОВ...]";
+            const files = suggestions.split('--------------------------------\n');
+            const comments = [];
+            
+            for (const fileData of files) {
+                if (!fileData.trim()) continue;
+
+                const lines = fileData.trim().split('\n');
+                const fileNameMatch = lines[0].match(/Проверка файла: (.*)/);
+                
+                if (!fileNameMatch) continue;
+                const fileName = fileNameMatch[1];
+
+                const content = lines.slice(2).join('\n');
+
+               if (content.trim()) {
+                  const commentBody = `<details><summary>Грамматические замечания для <code>${fileName}</code></summary>\n\n\`\`\`\n${content.trim()}\n\`\`\`\n</details>`;
+                   comments.push(commentBody);
+                }
             }
 
-            const body = `## LanguageTool (RU) — Проверка грамматики\n\n\`\`\`\n${trimmed}\n\`\`\``;
+             // Ограничение на количество комментариев (50)
+            const maxComments = 50;
+            let currentComment = "";
+            let commentCounter = 0;
 
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: body
-            });
+            for (const comment of comments) {
+              if (commentCounter < maxComments){
+                  currentComment += comment + "\n\n";
+              }
+              else {
+                const body = `## LanguageTool (RU) — Проверка грамматики\n\n${currentComment}`
+                  await github.rest.issues.createComment({
+                      issue_number: context.issue.number,
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      body: body
+                    });
+                  currentComment = comment + "\n\n"
+                  commentCounter = 0;
+                }
+                commentCounter++;
+            }
+              
+            if (currentComment) {
+               const body = `## LanguageTool (RU) — Проверка грамматики\n\n${currentComment}`
+                  await github.rest.issues.createComment({
+                      issue_number: context.issue.number,
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      body: body
+                    });
+            }

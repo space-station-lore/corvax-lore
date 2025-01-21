@@ -1,0 +1,70 @@
+name: "Automatic Labeling"
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  label-pr:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get changed files
+        id: changed-files
+        uses: tj-actions/changed-files@v44
+        with:
+          base_sha: ${{ github.event.pull_request.base.sha }}
+          head_sha: ${{ github.event.pull_request.head.sha }}
+
+      - name: Determine labels
+        id: determine-labels
+        run: |
+          # Инициализация лейблов
+          LABELS=()
+          CONTENT_TYPE_LABEL=""
+
+          # Проверка изменений в папках
+          for FILE in ${{ steps.changed-files.outputs.all_changed_files }}; do
+            case $FILE in
+              00_Правила_оформления/*) LABELS+=("Правила") ;;
+              01_Вселенная/*) LABELS+=("Вселенная") ;;
+              02_Объекты/*) LABELS+=("Объекты") ;;
+              03_Государства/*) LABELS+=("Государства") ;;
+              04_Корпорации/*) LABELS+=("Корпорации") ;;
+              05_Организации/*) LABELS+=("Организации") ;;
+              06_Расы/*) LABELS+=("Расы") ;;
+              07_Существа/*) LABELS+=("Существа") ;;
+              08_Технологии/*) LABELS+=("Технологии") ;;
+              09_Вооружение/*) LABELS+=("Вооружение") ;;
+              10_Явления/*) LABELS+=("Явления") ;;
+              11_Товары/*) LABELS+=("Товары") ;;
+              12_Другое/*) LABELS+=("Другое") ;;
+              13_Истории/*) LABELS+=("Истории") ;;
+              14_Повседневность/*) LABELS+=("Повседневность") ;;
+            esac
+          done
+
+          # Определение типа изменений
+          if [[ "${{ steps.changed-files.outputs.any_added }}" == "true" ]]; then
+            CONTENT_TYPE_LABEL="Новый контент"
+          elif [[ "${{ steps.changed-files.outputs.any_modified }}" == "true" ]]; then
+            CONTENT_TYPE_LABEL="Изменение"
+          fi
+
+          # Объединение и уникализация лейблов
+          ALL_LABELS=("${LABELS[@]}" "$CONTENT_TYPE_LABEL")
+          UNIQUE_LABELS=$(printf "%s\n" "${ALL_LABELS[@]}" | sort -u | tr '\n' ',' | sed 's/,$//')
+
+          echo "Labels: $UNIQUE_LABELS"
+          echo "labels=$UNIQUE_LABELS" >> $GITHUB_OUTPUT
+
+      - name: Apply labels
+        uses: actions-ecosystem/action-add-labels@v1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          labels: ${{ steps.determine-labels.outputs.labels }}

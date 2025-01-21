@@ -1,0 +1,384 @@
+name: Unibersal Lore Checker
+
+on:
+  pull_request:
+    paths:
+      - '01_Вселенная/**'
+      - '02_Объекты/**'
+      - '03_Государства/**'
+      - '04_Корпорации/**'
+      - '05_Организации/**'
+      - '06_Расы/**'
+      - '07_Существа/**'
+      - '08_Технологии/**'
+      - '09_Вооружение/**'
+      - '10_Явления/**'
+      - '11_Товары/**'
+      - '12_Другое/**'
+      - '13_Истории/**'
+      - '14_Повседневность/**'
+
+jobs:
+  universal_lore_checker:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+
+    - name: Install dependencies
+      run: |
+          pip install --upgrade pip
+          pip cache purge
+          pip install google-generativeai==0.4.0
+          pip install requests
+          pip install google-ai-generativelanguage==0.4.0
+          pip install google-auth>=2.15.0
+          pip install google-api-core
+          pip install protobuf
+          pip install pydantic
+          pip install tqdm
+          pip install typing-extensions
+          pip install "proto-plus>=1.22.3"
+          pip install "googleapis-common-protos>=1.56.2"
+          pip install requests>=2.18.0
+          pip install cachetools>=2.0.0
+          pip install pyasn1-modules>=0.2.1
+          pip install rsa>=3.1.4
+          pip install annotated-types>=0.6.0
+          pip install pydantic-core
+          pip install grpcio>=1.33.2
+          pip install grpcio-status>=1.33.2
+          pip install pyasn1>=0.4.6
+
+    - name: Analyze Markdown Changes and Compare with Templates, Rules, and other articles
+      env:
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+      run: |
+        python <<'EOF'
+        import os
+        import requests
+        import google.generativeai as genai
+        import subprocess
+        import re
+
+        genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+        model = genai.GenerativeModel("gemini-1.5-flash")
+
+        def get_changed_files():
+            changed_files = []
+            pr_number = os.getenv("GITHUB_REF").split('/')[-2]
+            api_url = f"https://api.github.com/repos/{os.getenv('GITHUB_REPOSITORY')}/pulls/{pr_number}/files"
+            headers = {
+                "Authorization": f"Bearer {os.getenv('GITHUB_TOKEN')}",
+                "Accept": "application/vnd.github+json",
+            }
+            response = requests.get(api_url, headers=headers)
+            if response.status_code == 200:
+                files = response.json()
+                for file in files:
+                    if file["filename"].endswith(".md"):
+                        changed_files.append((file["status"], file["filename"]))
+            else:
+                print(f"Failed to get changed files: {response.status_code}, {response.text}")
+            return changed_files
+
+
+        def create_comment(body):
+            repo = os.getenv("GITHUB_REPOSITORY")
+            pr_number = os.getenv("GITHUB_REF").split('/')[-2]
+            url = f"https://api.github.com/repos/{repo}/issues/{pr_number}/comments"
+            headers = {
+            "Authorization": f"Bearer {os.getenv('GITHUB_TOKEN')}",
+                "Accept": "application/vnd.github+json",
+            }
+            payload = {"body": body}
+            response = requests.post(url, json=payload, headers=headers)
+            if response.status_code != 201:
+                print(f"Failed to post comment: {response.status_code}, {response.text}")
+            else:
+                print("Comment posted successfully")
+
+        def get_lore_files(root_dir, exclude_dirs):
+            lore_files = {}
+            for root, _, files in os.walk(root_dir):
+                 if any(exclude_dir in root for exclude_dir in exclude_dirs):
+                    continue
+                 for file in files:
+                     if file.endswith('.md') and file not in ["README.md", "TEMPLATE.md", "design_document.md"]:
+                       full_path = os.path.join(root, file)
+                       with open(full_path, 'r', encoding='utf-8') as f:
+                           lore_files[full_path] = f.read()
+            return lore_files
+
+
+        changed_files = get_changed_files()
+        for status, filepath in changed_files:
+            comments = []
+            dirname = os.path.dirname(filepath)
+            root_dirname = dirname.split(os.sep)[0]
+            file_name = os.path.basename(filepath)
+            
+            if file_name == "design_document.md":
+                if status == 'added':
+                    # Only process new design_document.md with Общие_правила.md
+                    rules_path = "00_Правила_оформления/Общие_правила.md"
+                    try:
+                        with open(filepath, 'r', encoding='utf-8') as f:
+                            file_content = f.read()
+                        with open(rules_path, 'r', encoding='utf-8') as r:
+                            rules_content = r.read()
+
+                        prompt_rules = f"""
+                            Проанализируй следующий текст (полное содержимое файла) на соответствие общим правилам оформления (полное содержимое правил).
+                            Укажи, чего не хватает в тексте файла по сравнению с правилами.
+                            Сформулируй свои рекомендации на русском языке, четко указывая, какую информацию стоит изменить или стоит добавить в текст файла,
+                            чтобы он не противоречил общим правилам оформления.
+
+                            Текст файла (полное содержимое):
+                            {file_content}
+
+                            Общие правила оформления:
+                            {rules_content}
+                            """
+                        response_rules = model.generate_content(prompt_rules)
+                        recommendations_rules_text = response_rules.candidates[0].content.parts[0].text.strip() if response_rules.candidates and response_rules.candidates[0].content.parts else "Не удалось получить рекомендации по общим правилам."
+                        comments.append(f"<details><summary>Проверка `design_document.md` на соответствие общим правилам</summary>\n\n{recommendations_rules_text}\n</details>")
+                    except Exception as e:
+                        comments.append(f"<details><summary>Ошибка проверки `design_document.md` на соответствие общим правилам</summary>\n\n{e}\n</details>")
+                    
+                    if comments:
+                        comment_body = f"### Анализ файла `{file_name}` в папке `{root_dirname}`:\n\n" + "\n".join(comments)
+                        create_comment(comment_body)
+                continue  # Skip the rest of the processing for design_document.md
+            
+
+
+            # 0. Summary of the file
+            try:
+              with open(filepath, 'r', encoding='utf-8') as f:
+                  text = f.read()
+                  summary = model.generate_content(f"Опиши содержание следующего текста на русском языке, укажи все нелогичные моменты, слабые места и ошибки:\n\n{text}")
+                  summary_text = summary.candidates[0].content.parts[0].text.strip() if summary.candidates and summary.candidates[0].content.parts else "Нет доступного описания."
+                  comments.append(f"<details><summary>Краткий пересказ для `{filepath}`</summary>\n\n{summary_text}\n</details>")
+            except Exception as e:
+              comments.append(f"<details><summary>Ошибка краткого пересказа для `{filepath}`</summary>\n\n{e}</details>")
+
+
+            # 1. Tags for the file (only for new files)
+            if status == 'added':
+              try:
+                  with open(filepath, 'r', encoding='utf-8') as f:
+                      text = f.read()
+                      tags_response = model.generate_content(f"На основе содержания, предложи 3-5 ключевых тега на русском языке в формате '#тег'. Только теги, ничего больше:\n\n{text}")
+                      tags_text = tags_response.candidates[0].content.parts[0].text.strip() if tags_response.candidates and tags_response.candidates[0].content.parts else "Не удалось получить теги."
+                      comments.append(f"<details><summary>Теги для `{filepath}`</summary>\n\n{tags_text}\n</details>")
+              except Exception as e:
+                  comments.append(f"<details><summary>Ошибка получения тегов для `{filepath}`</summary>\n\n{e}</details>")
+
+
+            # 2. Comparison with design_document.md
+            design_doc_path = os.path.join(dirname, "design_document.md")
+            if os.path.exists(design_doc_path):
+                try:
+                   with open(filepath, 'r', encoding='utf-8') as f:
+                      file_content = f.read()
+                   with open(design_doc_path, 'r', encoding='utf-8') as t:
+                      design_doc_content = t.read()
+
+                   prompt_design_doc = f"""
+                    Кратко проанализируй следующий текст (полное содержимое файла) на соответствие дизайн-документу (полное содержимое дизайн-документа).
+                    Укажи, чего не хватает в тексте файла по сравнению с дизайн-документом.
+                    Сформулируй свои рекомендации на русском языке, четко указывая, какие разделы или информацию стоит добавить в текст файла,
+                    чтобы он соответствовал структуре и содержанию дизайн-документа.
+
+                    Текст файла (полное содержимое):
+                    {file_content}
+
+                    Текст дизайн-документа (полное содержимое):
+                    {design_doc_content}
+                    """
+                   response_design_doc = model.generate_content(prompt_design_doc)
+                   recommendations_design_doc_text = response_design_doc.candidates[0].content.parts[0].text.strip() if response_design_doc.candidates and response_design_doc.candidates[0].content.parts else "Не удалось получить рекомендации по дизайн-документу."
+                   comments.append(f"<details><summary>Сравнение дизайн-документа для `{filepath}`</summary>\n\n{recommendations_design_doc_text}\n</details>")
+                except Exception as e:
+                   comments.append(f"<details><summary>Ошибка сравнения с дизайн-документом для `{filepath}`</summary>\n\n{e}</details>")
+            else:
+                comments.append(f"<details><summary>Сравнение дизайн-документа для `{filepath}`</summary>\n\nФайл `design_document.md` не найден.\n</details>")
+
+
+           # 3. Comparison with README.md and TEMPLATE.md from the category folder
+            template_path = os.path.join(root_dirname, "TEMPLATE.md")
+            readme_path = os.path.join(root_dirname, "README.md")
+            try:
+              with open(filepath, 'r', encoding='utf-8') as f:
+                file_content = f.read()
+
+              template_content = ""
+              if os.path.exists(template_path):
+                with open(template_path, 'r', encoding='utf-8') as t:
+                   template_content = t.read()
+              else:
+                  template_content = "Шаблон не найден."
+
+              readme_content = ""
+              if os.path.exists(readme_path):
+                with open(readme_path, 'r', encoding='utf-8') as r:
+                   readme_content = r.read()
+              else:
+                readme_content = "README не найден"
+
+
+              prompt_template_readme = f"""
+                Проанализируй следующий текст (полное содержимое файла) на соответствие шаблону (полное содержимое шаблона) и README (полное содержимое README) из той же папки.
+                Укажи, чего не хватает в тексте файла по сравнению с шаблоном и README.
+                Сформулируй свои рекомендации на русском языке, четко указывая, какие разделы или информацию стоит добавить в текст файла,
+                чтобы он соответствовал структуре и содержанию шаблона, а также не противоречил README.
+                Текст файла (полное содержимое):
+                {file_content}
+
+                Текст шаблона (полное содержимое):
+                {template_content}
+
+                Текст README (полное содержимое):
+                {readme_content}
+                """
+              response_template_readme = model.generate_content(prompt_template_readme)
+              recommendations_template_readme_text = response_template_readme.candidates[0].content.parts[0].text.strip() if response_template_readme.candidates and response_template_readme.candidates[0].content.parts else "Не удалось получить рекомендации по шаблону и README."
+              comments.append(f"<details><summary>Проверка на соответствие условиям категории для `{filepath}`</summary>\n\n{recommendations_template_readme_text}\n</details>")
+            except Exception as e:
+                comments.append(f"<details><summary>Ошибка проверки на соответствие условиям категории для `{filepath}`</summary>\n\n{e}</details>")
+
+
+            # 4. Comparison with Общие_правила.md
+            rules_path = "00_Правила_оформления/Общие_правила.md"
+            try:
+                with open(filepath, 'r', encoding='utf-8') as f:
+                   file_content = f.read()
+                with open(rules_path, 'r', encoding='utf-8') as r:
+                   rules_content = r.read()
+
+                prompt_rules = f"""
+                    Проанализируй следующий текст (полное содержимое файла) на соответствие общим правилам оформления (полное содержимое правил).
+                    Укажи, чего не хватает в тексте файла по сравнению с правилами.
+                    Сформулируй свои рекомендации на русском языке, четко указывая, какую информацию стоит изменить или стоит добавить в текст файла,
+                    чтобы он не противоречил общим правилам оформления.
+
+                    Текст файла (полное содержимое):
+                    {file_content}
+
+                    Общие правила оформления:
+                    {rules_content}
+                    """
+                response_rules = model.generate_content(prompt_rules)
+                recommendations_rules_text = response_rules.candidates[0].content.parts[0].text.strip() if response_rules.candidates and response_rules.candidates[0].content.parts else "Не удалось получить рекомендации по общим правилам."
+                comments.append(f"<details><summary>Проверка на соответствие общим правилам для `{filepath}`</summary>\n\n{recommendations_rules_text}\n</details>")
+            except Exception as e:
+               comments.append(f"<details><summary>Ошибка проверки на соответствие общим правилам для `{filepath}`</summary>\n\n{e}</details>")
+
+            # 5.  Comparison with all other lore files
+            exclude_dirs = ['00_Правила_оформления', '01_Вселенная/Хронология']
+            all_lore_files = get_lore_files('01_Вселенная', exclude_dirs)
+            all_lore_files.update(get_lore_files('02_Объекты', exclude_dirs))
+            all_lore_files.update(get_lore_files('03_Государства', exclude_dirs))
+            all_lore_files.update(get_lore_files('04_Корпорации', exclude_dirs))
+            all_lore_files.update(get_lore_files('05_Организации', exclude_dirs))
+            all_lore_files.update(get_lore_files('06_Расы', exclude_dirs))
+            all_lore_files.update(get_lore_files('07_Существа', exclude_dirs))
+            all_lore_files.update(get_lore_files('08_Технологии', exclude_dirs))
+            all_lore_files.update(get_lore_files('09_Вооружение', exclude_dirs))
+            all_lore_files.update(get_lore_files('10_Явления', exclude_dirs))
+            all_lore_files.update(get_lore_files('11_Товары', exclude_dirs))
+            all_lore_files.update(get_lore_files('12_Другое', exclude_dirs))
+            all_lore_files.update(get_lore_files('13_Истории', exclude_dirs))
+            all_lore_files.update(get_lore_files('14_Повседневность', exclude_dirs))
+
+
+
+            try:
+                with open(filepath, 'r', encoding='utf-8') as f:
+                   file_content = f.read()
+
+                context_content = ""
+                for path, content in all_lore_files.items():
+                    context_content += f"\nФайл: {path}\n{content}\n"
+                if context_content:
+
+                   prompt_all_lore = f"""
+                    Кратко проанализируй текст в файле `{filepath}` на предмет неточностей и противоречий относительно следующего контекста (содержимого всех остальных файлов .md в репозитории, кроме README.md, TEMPLATE.md и design_document.md).
+                    Укажи конкретные места и сформулируй свои рекомендации на русском языке.
+
+                    Текст файла (полное содержимое):
+                    {file_content}
+
+                    Контекст (полное содержимое всех остальных файлов .md в репозитории, кроме README.md, TEMPLATE.md и design_document.md):
+                    {context_content}
+                    """
+                   response_all_lore = model.generate_content(prompt_all_lore)
+                   recommendations_all_lore_text = response_all_lore.candidates[0].content.parts[0].text.strip() if response_all_lore.candidates and response_all_lore.candidates[0].content.parts else "Не удалось получить рекомендации по соответствию со всем лором."
+                   comments.append(f"<details><summary>Общее сравнение для `{filepath}`</summary>\n\n{recommendations_all_lore_text}\n</details>")
+                else:
+                   comments.append(f"<details><summary>Общее сравнение для `{filepath}`</summary>\n\nНет других статей для общего сравнения.\n</details>")
+            except Exception as e:
+               comments.append(f"<details><summary>Ошибка общего сравнения для `{filepath}`</summary>\n\n{e}</details>")
+
+
+
+           # 6. Comparison with all other lore files in the same category
+            exclude_dirs = ['00_Правила_оформления']
+            same_category_lore_files = get_lore_files(root_dirname, exclude_dirs)
+            try:
+                 with open(filepath, 'r', encoding='utf-8') as f:
+                    file_content = f.read()
+                 context_category_content = ""
+                 for path, content in same_category_lore_files.items():
+                     if path != filepath:
+                       context_category_content += f"\nФайл: {path}\n{content}\n"
+
+                 if context_category_content:
+                   prompt_same_category = f"""
+                        Кратко проанализируй текст в файле `{filepath}` на предмет неточностей и противоречий относительно следующего контекста (содержимого всех остальных файлов .md в той же папке, кроме README.md, TEMPLATE.md и design_document.md).
+                        Укажи конкретные места и сформулируй свои рекомендации на русском языке. Анализ должен касаться только ошибок и неточностей файла `{filepath}` на предмет неточностей и противоречий относительно остального контента. Например, если у расы "Унатхи" указано, что они в дружелюбном отношении с расой "Люди", а у расы "Люди" указано, что они во враждебных отношениях с расой "Унатхи", это должно быть отмечено.
+
+                        Текст файла (полное содержимое):
+                        {file_content}
+
+                        Контекст (полное содержимое всех остальных файлов .md в той же папке, кроме README.md, TEMPLATE.md и design_document.md):
+                        {context_category_content}
+                        """
+                   response_same_category = model.generate_content(prompt_same_category)
+                   recommendations_same_category_text = response_same_category.candidates[0].content.parts[0].text.strip() if response_same_category.candidates and response_same_category.candidates[0].content.parts else "Не удалось получить рекомендации по соответствию в категории"
+                   comments.append(f"<details><summary>Сравнение по категории для `{filepath}`</summary>\n\n{recommendations_same_category_text}\n</details>")
+                 else:
+                   comments.append(f"<details><summary>Сравнение по категории для `{filepath}`</summary>\n\nОтсутствуют другие статьи в этой категории.\n</details>")
+            except Exception as e:
+                comments.append(f"<details><summary>Ошибка сравнения по категории для `{filepath}`</summary>\n\n{e}</details>")
+
+            # 7. Comparison with previous version
+            try:
+                if status == 'modified':
+                   result = subprocess.run(["git", "show", f"HEAD~1:{filepath}"], capture_output=True, text=True)
+                   old_text = result.stdout
+                   with open(filepath, 'r', encoding='utf-8') as f:
+                       new_text = f.read()
+                   diff_summary = model.generate_content(f"Кратко опиши изменения в следующем тексте на русском языке:\n\nСтарый текст:\n{old_text}\n\nНовый текст:\n{new_text}")
+                   diff_summary_text = diff_summary.candidates[0].content.parts[0].text.strip() if diff_summary.candidates and diff_summary.candidates[0].content.parts else "Нет доступного описания изменений"
+                   comments.append(f"<details><summary>Изменения в статье для `{filepath}`</summary>\n\n**Описание изменений:**\n{diff_summary_text}\n</details>")
+
+                elif status == 'added':
+                    comments.append(f"<details><summary>Изменения в статье для `{filepath}`</summary>\n\nФайл впервые создан.\n</details>")
+            except Exception as e:
+              comments.append(f"<details><summary>Ошибка сравнения с предыдущей версией для `{filepath}`</summary>\n\n{e}</details>")
+
+
+            # Post all comments for this file
+            if comments:
+               comment_body = f"### Анализ файла `{file_name}` в папке `{root_dirname}`:\n\n" + "\n".join(comments)
+               create_comment(comment_body)
+        EOF
