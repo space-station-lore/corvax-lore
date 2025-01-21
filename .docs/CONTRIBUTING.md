@@ -12,8 +12,6 @@
 3. Заполните форму (email, пароль, имя пользователя)
 4. Подтвердите email (проверьте папку "Спам")
 
-![Регистрация на GitHub](https://i.imgur.com/3Gt7WgB.png)
-
 ### 2. Установите Git
 1. Скачайте Git: [git-scm.com/downloads](https://git-scm.com/downloads)
 2. Запустите установщик (всё время жмите "Next")
