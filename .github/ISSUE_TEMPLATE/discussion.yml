@@ -10,6 +10,7 @@ body:
       placeholder: "Пример: Как улучшить описание расы Слаймолюдов?"
     validations:
       required: true
+
   - type: dropdown
     id: category
     attributes:
@@ -31,21 +32,20 @@ body:
         - "Другое"
     validations:
       required: true
+
   - type: markdown
-    id: category_label
+    id: discussion_category_info
     attributes:
-        label: "Скрытый лейбл категории"
-        value: |
-          <details>
-            <summary> ℹ️ Автоматический лейбл. Не удаляйте этот блок. </summary>
-            Этот блок добавляет автоматический лейбл на основе выбранной категории.
-            <br>
-          </details>
-    
+      value: |
+        <details>
+          <summary> ℹ️ Автоматический лейбл. Не удаляйте этот блок. </summary>
+          Этот блок добавляет лейбл на основе выбранной категории.
+        </details>
+
   - type: input
     id: category_label_hidden
+    attributes:
+      label: "Служебное поле (не изменять)"
+      value: ${{ github.event.issue.labels[1].name }}
     validations:
       required: false
-    attributes:
-        label: "Скрытый input для лейбла категории"
-        value: ${{ github.event.issue.labels[1].name }}
