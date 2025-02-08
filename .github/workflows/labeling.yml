@@ -14,23 +14,32 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Fetch PR head branch
+        id: fetch_pr
+        run: |
+          git remote add pr "${{ github.event.pull_request.head.repo.clone_url }}"
+          git fetch pr "${{ github.event.pull_request.head.ref }}"
+          echo "::set-output name=head_sha::$(git rev-parse pr/${{ github.event.pull_request.head.ref }})"
+
       - name: Get changed files
         id: changed-files
         uses: tj-actions/changed-files@v44
         with:
           base_sha: ${{ github.event.pull_request.base.sha }}
-          head_sha: ${{ github.event.pull_request.head.sha }}
+          head_sha: ${{ steps.fetch_pr.outputs.head_sha }}
 
       - name: Determine labels
         id: determine-labels
         run: |
-          # Инициализация лейблов
+          # Устанавливаем разделитель строк для корректной итерации по файлам
+          IFS=$'\n'
+          # Инициализация массива лейблов и переменной для типа изменений
           LABELS=()
           CONTENT_TYPE_LABEL=""
 
-          # Проверка изменений в папках
+          # Обработка списка изменённых файлов (каждый файл в отдельной строке)
           for FILE in ${{ steps.changed-files.outputs.all_changed_files }}; do
-            case $FILE in
+            case "$FILE" in
               00_Правила_оформления/*) LABELS+=("Правила") ;;
               01_Вселенная/*) LABELS+=("Вселенная") ;;
               02_Объекты/*) LABELS+=("Объекты") ;;
@@ -56,7 +65,7 @@ jobs:
             CONTENT_TYPE_LABEL="Изменение"
           fi
 
-          # Объединение и уникализация лейблов
+          # Объединение всех лейблов и удаление дубликатов
           ALL_LABELS=("${LABELS[@]}" "$CONTENT_TYPE_LABEL")
           UNIQUE_LABELS=$(printf "%s\n" "${ALL_LABELS[@]}" | sort -u | tr '\n' ',' | sed 's/,$//')
 
