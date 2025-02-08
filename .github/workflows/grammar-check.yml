@@ -144,6 +144,7 @@ jobs:
                 }
             }
 
+            // Ограничение на количество комментариев (50)
             const maxComments = 50;
             let currentComment = "";
             let commentCounter = 0;
