@@ -54,23 +54,31 @@ jobs:
       - name: Disable Git path quoting
         run: git config core.quotepath off
 
-      # 6. Собственно проверка .md-файлов
+      # 6. Подтягиваем ветку PR, чтобы получить корректный HEAD_SHA
+      - name: Fetch PR head branch
+        id: fetch_pr
+        run: |
+          git remote add pr "${{ github.event.pull_request.head.repo.clone_url }}"
+          git fetch pr "${{ github.event.pull_request.head.ref }}"
+          echo "::set-output name=head_sha::$(git rev-parse pr/${{ github.event.pull_request.head.ref }})"
+
+      # 7. Собственно проверка .md-файлов
       - name: Run grammar check (RU) with Pandoc
         id: run_languagetool
         run: |
           # SHAs для diff
           BASE_SHA=${{ github.event.pull_request.base.sha }}
-          HEAD_SHA=${{ github.event.pull_request.head.sha }}
+          HEAD_SHA=${{ steps.fetch_pr.outputs.head_sha }}
+          echo "Using BASE_SHA=$BASE_SHA"
+          echo "Using HEAD_SHA=$HEAD_SHA"
 
           # Получаем список изменённых .md-файлов
           CHANGED_FILES=$(git diff --name-only --diff-filter=ACMRT $BASE_SHA $HEAD_SHA | grep '\.md$' || true)
-
           if [ -z "$CHANGED_FILES" ]; then
             echo "No changed .md files to check."
             echo "" > grammar_output.txt
             exit 0
           fi
-
           echo "Changed markdown files:"
           echo "$CHANGED_FILES"
 
@@ -97,7 +105,7 @@ jobs:
             echo "" >> grammar_output.txt
           done
 
-      # 7. Публикуем результаты в PR
+      # 8. Публикуем результаты в PR
       - name: Create PR comment with suggestions
         if: always()
         uses: actions/github-script@v6
@@ -131,41 +139,40 @@ jobs:
 
                 const content = lines.slice(2).join('\n');
 
-               if (content.trim()) {
+                if (content.trim()) {
                   const commentBody = `<details><summary>Грамматические замечания для <code>${fileName}</code></summary>\n\n\`\`\`\n${content.trim()}\n\`\`\`\n</details>`;
-                   comments.push(commentBody);
+                  comments.push(commentBody);
                 }
             }
 
-             // Ограничение на количество комментариев (50)
+            // Ограничение на количество комментариев (50)
             const maxComments = 50;
             let currentComment = "";
             let commentCounter = 0;
 
             for (const comment of comments) {
               if (commentCounter < maxComments){
-                  currentComment += comment + "\n\n";
+                currentComment += comment + "\n\n";
+              } else {
+                const body = `## LanguageTool (RU) — Проверка грамматики\n\n${currentComment}`;
+                await github.rest.issues.createComment({
+                  issue_number: context.issue.number,
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  body: body
+                });
+                currentComment = comment + "\n\n";
+                commentCounter = 0;
               }
-              else {
-                const body = `## LanguageTool (RU) — Проверка грамматики\n\n${currentComment}`
-                  await github.rest.issues.createComment({
-                      issue_number: context.issue.number,
-                      owner: context.repo.owner,
-                      repo: context.repo.repo,
-                      body: body
-                    });
-                  currentComment = comment + "\n\n"
-                  commentCounter = 0;
-                }
-                commentCounter++;
+              commentCounter++;
             }
               
             if (currentComment) {
-               const body = `## LanguageTool (RU) — Проверка грамматики\n\n${currentComment}`
-                  await github.rest.issues.createComment({
-                      issue_number: context.issue.number,
-                      owner: context.repo.owner,
-                      repo: context.repo.repo,
-                      body: body
-                    });
+              const body = `## LanguageTool (RU) — Проверка грамматики\n\n${currentComment}`;
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: body
+              });
             }
