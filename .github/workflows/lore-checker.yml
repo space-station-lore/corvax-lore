@@ -1,7 +1,7 @@
 name: Lore Checker
 
 on:
-  pull_request:
+  pull_request_target:
     paths:
       - '01_Вселенная/**'
       - '02_Объекты/**'
