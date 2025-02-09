@@ -33,3 +33,6 @@
 > Смешно кричат.
 ## Отражение в игре
 > Книги, плакаты, описания предметов, да хоть заготовленные псевдо-сценки от мапперов. Ну и сами игроки Ниан.
+
+## Источник
+https://docs.google.com/document/d/1CaMX3XzAxMcnn1uUsBLNwxHmeN80fNCnV4Yn4j2vbV8/edit?usp=drivesdk
