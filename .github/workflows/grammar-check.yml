@@ -1,7 +1,7 @@
 name: "Grammar & Punctuation Check (RU)"
 
 on:
-  pull_request:
+  pull_request_target:
     paths:
       - '00_Правила_оформления/**/*.md'
       - '01_Вселенная/**/*.md'
@@ -25,7 +25,7 @@ jobs:
   grammar-check:
     runs-on: ubuntu-latest
     steps:
-      # 1. Клонируем репозиторий, но с полным fetch
+      # 1. Клонируем репозиторий с полным fetch
       - name: Check out the code
         uses: actions/checkout@v3
         with:
@@ -54,27 +54,37 @@ jobs:
       - name: Disable Git path quoting
         run: git config core.quotepath off
 
-      # 6. Собственно проверка .md-файлов
+      # 6. Подтягиваем ветку PR для получения актуального HEAD_SHA
+      - name: Fetch PR head branch
+        id: fetch_pr
+        run: |
+          git remote add pr "${{ github.event.pull_request.head.repo.clone_url }}"
+          git fetch pr "${{ github.event.pull_request.head.ref }}"
+          echo "::set-output name=head_sha::$(git rev-parse pr/${{ github.event.pull_request.head.ref }})"
+
+      # 7. Выполняем проверку грамматики для изменённых файлов
       - name: Run grammar check (RU) with Pandoc
         id: run_languagetool
         run: |
-          # SHAs для diff
           BASE_SHA=${{ github.event.pull_request.base.sha }}
-          HEAD_SHA=${{ github.event.pull_request.head.sha }}
+          HEAD_SHA=${{ steps.fetch_pr.outputs.head_sha }}
+          echo "Using BASE_SHA=$BASE_SHA"
+          echo "Using HEAD_SHA=$HEAD_SHA"
 
-          # Получаем список изменённых .md-файлов
-          CHANGED_FILES=$(git diff --name-only --diff-filter=ACMRT $BASE_SHA $HEAD_SHA | grep '\.md$' || true)
+          # Вычисляем общий предок между HEAD и базовой веткой
+          MERGE_BASE=$(git merge-base $HEAD_SHA $BASE_SHA)
+          echo "Using MERGE_BASE=$MERGE_BASE"
 
+          # Получаем список изменённых файлов (новых и изменённых) относительно merge base
+          CHANGED_FILES=$(git diff --name-only --diff-filter=ACMRT $MERGE_BASE $HEAD_SHA | grep '\.md$' || true)
           if [ -z "$CHANGED_FILES" ]; then
             echo "No changed .md files to check."
             echo "" > grammar_output.txt
             exit 0
           fi
-
           echo "Changed markdown files:"
           echo "$CHANGED_FILES"
 
-          # Очищаем/создаём общий файл вывода
           rm -f grammar_output.txt
           touch grammar_output.txt
 
@@ -83,21 +93,22 @@ jobs:
             echo "Проверка файла: $FILE" >> grammar_output.txt
             echo "" >> grammar_output.txt
 
-            # 1) MD -> plain text (Pandoc)
-            pandoc "$FILE" -t plain -o /tmp/conversion.txt
-
-            # 2) Запуск LanguageTool CLI
-            java -jar lt/LanguageTool-6.5/languagetool-commandline.jar \
-              --language ru \
-              --mothertongue ru \
-              /tmp/conversion.txt \
-              >> grammar_output.txt \
-              || true
-
-            echo "" >> grammar_output.txt
+            # Извлекаем содержимое файла из PR-ветки (это работает для новых и изменённых файлов)
+            if git show $HEAD_SHA:"$FILE" > /tmp/pr_file.md; then
+              pandoc /tmp/pr_file.md -t plain -o /tmp/conversion.txt
+              java -jar lt/LanguageTool-6.5/languagetool-commandline.jar \
+                --language ru \
+                --mothertongue ru \
+                /tmp/conversion.txt \
+                >> grammar_output.txt \
+                || true
+              echo "" >> grammar_output.txt
+            else
+              echo "Файл $FILE не найден в коммите HEAD." >> grammar_output.txt
+            fi
           done
 
-      # 7. Публикуем результаты в PR
+      # 8. Публикуем результаты в PR
       - name: Create PR comment with suggestions
         if: always()
         uses: actions/github-script@v6
@@ -122,50 +133,45 @@ jobs:
             
             for (const fileData of files) {
                 if (!fileData.trim()) continue;
-
                 const lines = fileData.trim().split('\n');
                 const fileNameMatch = lines[0].match(/Проверка файла: (.*)/);
-                
                 if (!fileNameMatch) continue;
                 const fileName = fileNameMatch[1];
-
                 const content = lines.slice(2).join('\n');
-
-               if (content.trim()) {
+                if (content.trim()) {
                   const commentBody = `<details><summary>Грамматические замечания для <code>${fileName}</code></summary>\n\n\`\`\`\n${content.trim()}\n\`\`\`\n</details>`;
-                   comments.push(commentBody);
+                  comments.push(commentBody);
                 }
             }
 
-             // Ограничение на количество комментариев (50)
+            // Ограничение на количество комментариев (50)
             const maxComments = 50;
             let currentComment = "";
             let commentCounter = 0;
 
             for (const comment of comments) {
               if (commentCounter < maxComments){
-                  currentComment += comment + "\n\n";
+                currentComment += comment + "\n\n";
+              } else {
+                const body = `## LanguageTool (RU) — Проверка грамматики\n\n${currentComment}`;
+                await github.rest.issues.createComment({
+                  issue_number: context.issue.number,
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  body: body
+                });
+                currentComment = comment + "\n\n";
+                commentCounter = 0;
               }
-              else {
-                const body = `## LanguageTool (RU) — Проверка грамматики\n\n${currentComment}`
-                  await github.rest.issues.createComment({
-                      issue_number: context.issue.number,
-                      owner: context.repo.owner,
-                      repo: context.repo.repo,
-                      body: body
-                    });
-                  currentComment = comment + "\n\n"
-                  commentCounter = 0;
-                }
-                commentCounter++;
+              commentCounter++;
             }
               
             if (currentComment) {
-               const body = `## LanguageTool (RU) — Проверка грамматики\n\n${currentComment}`
-                  await github.rest.issues.createComment({
-                      issue_number: context.issue.number,
-                      owner: context.repo.owner,
-                      repo: context.repo.repo,
-                      body: body
-                    });
+              const body = `## LanguageTool (RU) — Проверка грамматики\n\n${currentComment}`;
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: body
+              });
             }

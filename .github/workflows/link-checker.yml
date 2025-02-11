@@ -1,7 +1,7 @@
 name: "Link Checker"
 
 on:
-  pull_request:
+  pull_request_target:
     paths:
       - '00_Правила_оформления/**/*.md'
       - '01_Вселенная/**/*.md'
@@ -24,30 +24,48 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # Проверка репозитория
       - name: Checkout repository
         uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
 
-      # Установка lychee
-      - name: Установка Lychee
-        run: cargo install lychee
+      - name: Fetch PR head branch
+        run: |
+          git remote add pr "${{ github.event.pull_request.head.repo.clone_url }}"
+          git fetch pr "${{ github.event.pull_request.head.ref }}"
 
-      # Запуск проверки ссылок
-      - name: Проверка ссылок в Markdown
-        id: link-check
-        run: lychee --output json --dump ./lychee-output.json "**/*.md" || echo "Обнаружены проблемы со ссылками."
+      - name: Extract added lines from changed Markdown files
+        run: |
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          HEAD_REF="${{ github.event.pull_request.head.ref }}"
+          # Сравнение базовой ветки с PR-веткой только для Markdown файлов
+          git diff "$BASE_SHA" "pr/$HEAD_REF" -- "*.md" > diff.txt
+          # Извлекаем только строки, добавленные в PR (начинаются с '+' но не с '+++')
+          grep '^+' diff.txt | grep -v '^+++' > added-links.md
+          echo "Содержимое добавленных строк:"
+          cat added-links.md
 
-      # Отправка комментария к PR
-      - name: Комментарий к PR с результатами
+      - name: Run lychee on added links
+        id: run-lychee
+        run: |
+          if [ ! -s added-links.md ]; then
+            echo "No added lines found."
+            # Создаем пустой JSON, чтобы дальнейший шаг мог корректно отработать
+            echo '{"links": []}' > lychee-output.json
+          else
+            # Передаем содержимое файла через STDIN в lychee
+            cat added-links.md | lychee --output json --dump ./lychee-output.json || echo "Обнаружены проблемы со ссылками."
+          fi
+
+      - name: Post PR comment with link check results
         if: always()
         uses: actions/github-script@v6
         with:
           script: |
             const fs = require('fs');
             const outputFile = './lychee-output.json';
-
             if (!fs.existsSync(outputFile)) {
-              github.rest.issues.createComment({
+              await github.rest.issues.createComment({
                 issue_number: context.payload.pull_request.number,
                 owner: context.repo.owner,
                 repo: context.repo.repo,
@@ -55,43 +73,38 @@ jobs:
               });
               return;
             }
-
             const output = JSON.parse(fs.readFileSync(outputFile, 'utf8'));
             if (!output.links || output.links.length === 0) {
-              github.rest.issues.createComment({
+              await github.rest.issues.createComment({
                 issue_number: context.payload.pull_request.number,
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                body: '🔍 В файлах Markdown не обнаружено ссылок.',
+                body: '🔍 В добавленном тексте не обнаружено ссылок или все ссылки корректны.',
               });
               return;
             }
-
             const failedLinks = output.links.filter(link => link.status !== 'Ok');
             if (failedLinks.length === 0) {
-              github.rest.issues.createComment({
+              await github.rest.issues.createComment({
                 issue_number: context.payload.pull_request.number,
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                body: '✅ Все ссылки в файлах Markdown корректны!',
+                body: '✅ Все ссылки в добавленном тексте корректны!',
               });
               return;
             }
-
             const errorDetails = failedLinks
               .map(link => `- [${link.uri}](${link.uri}) (Файл: ${link.source}) → Статус: ${link.status}`)
               .join('\n');
-
             const issueComment = `
-              ### Отчет о проверке ссылок
-              Обнаружены следующие проблемы со ссылками:
+### Отчет о проверке ссылок
+Обнаружены следующие проблемы со ссылками в добавленном тексте:
 
-              ${errorDetails}
+${errorDetails}
 
-              Пожалуйста, исправьте их перед слиянием.
+Пожалуйста, исправьте их перед слиянием.
             `;
-
-            github.rest.issues.createComment({
+            await github.rest.issues.createComment({
               issue_number: context.payload.pull_request.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
